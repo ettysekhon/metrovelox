@@ -1,0 +1,8 @@
+# Flink Operator — GKE values
+#
+# jobServiceAccount is managed by our rbac app (with Workload Identity annotation)
+# so we disable creation here to avoid ownership conflicts.
+
+jobServiceAccount:
+  create: false
+  name: "flink"

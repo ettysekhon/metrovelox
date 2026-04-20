@@ -1,0 +1,18 @@
+# Development environment overrides — layered on top of values-gke.yaml
+defaultAirflowRepository: europe-west2-docker.pkg.dev/openvelox-dev-01/openvelox/airflow
+
+env:
+  - name: PROJECT_ID
+    value: "openvelox-dev-01"
+  - name: GCS_BUCKET
+    value: "openvelox-dev-01-lakehouse"
+  - name: AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT
+    value: "google-cloud-platform://"
+  - name: AIRFLOW__CORE__AUTH_MANAGER
+    value: "airflow.providers.keycloak.auth_manager.keycloak_auth_manager.KeycloakAuthManager"
+  - name: AIRFLOW__KEYCLOAK_AUTH_MANAGER__CLIENT_ID
+    value: "airflow"
+  - name: AIRFLOW__KEYCLOAK_AUTH_MANAGER__REALM
+    value: "openvelox"
+  - name: AIRFLOW__KEYCLOAK_AUTH_MANAGER__SERVER_URL
+    value: "https://dev.auth.${DOMAIN}"

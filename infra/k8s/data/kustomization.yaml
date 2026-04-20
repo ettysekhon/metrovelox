@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Kubernetes manifests for the `data` namespace that are NOT deployed via Helm.
+# Helm-managed workloads in `data` (Polaris, Trino, PostgreSQL client catalogs)
+# are owned by their respective ArgoCD Applications.
+resources:
+  - polaris-console.yaml
+  # External Policy Decision Point for Polaris (preview feature). Deployed
+  # "dark" until helm/polaris/values-gke.tmpl.yaml flips
+  # polaris.authorization.type=opa — see the opa/ README-style header in
+  # opa.tmpl.yaml for the rollout procedure.
+  - opa

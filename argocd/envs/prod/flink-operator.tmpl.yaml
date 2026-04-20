@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: flink-operator
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: openvelox
+spec:
+  project: default
+  sources:
+    - chart: flink-kubernetes-operator
+      repoURL: https://downloads.apache.org/flink/flink-kubernetes-operator-1.14.0/
+      targetRevision: 1.14.0
+      helm:
+        skipCrds: true
+        valueFiles:
+          - $values/helm/flink-operator/values-gke.yaml
+    - repoURL: https://github.com/${GITHUB_ORG}/${GITHUB_REPO}.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: streaming
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - Replace=true

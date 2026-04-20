@@ -1,0 +1,154 @@
+# HealthCheckPolicy resources for services whose default health check fails.
+# GKE Gateway default: GET / expecting 200. Services returning 302/404 need overrides.
+---
+# Grafana returns 302 on / (OIDC redirect). Use /api/health instead.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: grafana-healthcheck
+  namespace: monitoring
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        requestPath: /api/health
+  targetRef:
+    group: ""
+    kind: Service
+    name: prometheus-stack-grafana
+---
+# Keycloak management health is on port 9000, but the GKE LB health check
+# must target a port exposed by the Service.  Use the main 8080 port with
+# the master-realm endpoint which always returns 200.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: keycloak-healthcheck
+  namespace: platform
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        port: 8080
+        requestPath: /realms/master
+  targetRef:
+    group: ""
+    kind: Service
+    name: keycloak
+---
+# Trino health endpoint is /v1/info which returns 200.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: trino-healthcheck
+  namespace: data
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        port: 8080
+        requestPath: /v1/info
+  targetRef:
+    group: ""
+    kind: Service
+    name: trino
+---
+# Polaris has no public health endpoint on 8181 (returns 401 on API paths).
+# GKE health check port must match the NEG port. Use TCP health check instead.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: polaris-healthcheck
+  namespace: data
+spec:
+  default:
+    config:
+      type: TCP
+      tcpHealthCheck:
+        port: 8181
+  targetRef:
+    group: ""
+    kind: Service
+    name: polaris
+---
+# Vault health endpoint
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: vault-healthcheck
+  namespace: security
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        port: 8200
+        requestPath: /v1/sys/health?standbyok=true&uninitcode=200&sealedcode=200
+  targetRef:
+    group: ""
+    kind: Service
+    name: vault-ui
+---
+# oauth2-proxy (Flink UI): default LB probe GET / fails.
+# Pod exposes /ping on 4180 (see streaming oauth2-proxy manifest).
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: oauth2-proxy-flink-healthcheck
+  namespace: streaming
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        port: 4180
+        requestPath: /ping
+  targetRef:
+    group: ""
+    kind: Service
+    name: oauth2-proxy-flink
+---
+# kafka-ui (kafbat) — GET / returns 302 → Keycloak (OIDC), so the GCLB
+# default probe fails the backend closed. Spring Boot Actuator's
+# /actuator/health returns 200 with a short JSON body even for
+# unauthenticated callers (kafbat leaves it on the permit-all list).
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: kafka-ui-healthcheck
+  namespace: kafka
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        port: 8080
+        requestPath: /actuator/health
+  targetRef:
+    group: ""
+    kind: Service
+    name: kafka-ui
+---
+# openvelox-api (FastAPI) — GET / returns 404 (no route); the LB-managed
+# NEG readiness gate therefore never flips on new pods, pinning Service
+# endpoints to whichever pod was ready before the gate was enforced.
+# /health returns 200 and is what the pod readinessProbe already uses.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: openvelox-api-healthcheck
+  namespace: apps
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        port: 8080
+        requestPath: /health
+  targetRef:
+    group: ""
+    kind: Service
+    name: openvelox-api

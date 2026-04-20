@@ -1,0 +1,66 @@
+# TfL → Kafka producer, targeting the Strimzi `openvelox` cluster with
+# SASL OAUTHBEARER auth. This is the sole producer on the platform —
+# the former Redpanda-targeted CronJob was retired alongside Redpanda.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tfl-producer-strimzi
+  namespace: streaming
+  labels:
+    app.kubernetes.io/part-of: openvelox
+    openvelox/stream: tfl
+    openvelox/kafka-cluster: strimzi
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 240
+      template:
+        spec:
+          restartPolicy: Never
+          nodeSelector:
+            cloud.google.com/gke-nodepool: spot-pool
+          tolerations:
+            - key: cloud.google.com/gke-spot
+              operator: Equal
+              value: "true"
+              effect: NoSchedule
+          containers:
+            - name: producer
+              image: busybox:latest
+              command: ["python", "tfl_producer_strimzi.py"]
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  memory: 256Mi
+              env:
+                - name: KAFKA_BOOTSTRAP_SERVERS
+                  value: "openvelox-kafka-bootstrap.kafka.svc.cluster.local:9092"
+                - name: KAFKA_TOKEN_ENDPOINT
+                  value: "http://keycloak.platform.svc.cluster.local:8080/realms/openvelox/protocol/openid-connect/token"
+                - name: KAFKA_CLIENT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: kafka-tfl-producer-oauth
+                      key: client-id
+                - name: KAFKA_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: kafka-tfl-producer-oauth
+                      key: client-secret
+                - name: BUS_STOP_IDS
+                  value: "490008660N,490008660S,490000129R,490000129S"
+                - name: TFL_LINE_MODES
+                  value: "tube,elizabeth-line,overground"
+                - name: TFL_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: tfl-api-key
+                      key: api-key
+                      optional: true

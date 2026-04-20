@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: polaris-console
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: openvelox
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/${GITHUB_ORG}/${GITHUB_REPO}.git
+    targetRevision: main
+    path: infra/k8s/data
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: data
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

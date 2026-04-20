@@ -1,0 +1,102 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  - path: patches-gateway.yaml
+  - patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: keycloak-route
+        namespace: platform
+      spec:
+        hostnames: ["dev.auth.${DOMAIN}"]
+  - patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: argocd-route
+        namespace: argocd
+      spec:
+        hostnames: ["dev.argocd.${DOMAIN}"]
+  - patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: orchestrator-route
+        namespace: batch
+      spec:
+        hostnames: ["dev.orchestrator.${DOMAIN}"]
+  - patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: query-engine-route
+        namespace: data
+      spec:
+        hostnames: ["dev.query.${DOMAIN}"]
+  - patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: vault-route
+        namespace: security
+      spec:
+        hostnames: ["dev.vault.${DOMAIN}"]
+  - patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: catalog-route
+        namespace: data
+      spec:
+        hostnames: ["dev.catalog.${DOMAIN}"]
+  - patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: catalog-console-route
+        namespace: data
+      spec:
+        hostnames: ["dev.catalog-console.${DOMAIN}"]
+  - patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: authz-route
+        namespace: security
+      spec:
+        hostnames: ["dev.authz.${DOMAIN}"]
+  - patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: stream-processing-route
+        namespace: streaming
+      spec:
+        hostnames: ["dev.stream-processing.${DOMAIN}"]
+  - patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: grafana-route
+        namespace: monitoring
+      spec:
+        hostnames: ["dev.grafana.${DOMAIN}"]
+  - patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: api-route
+        namespace: apps
+      spec:
+        hostnames: ["dev.api.${DOMAIN}"]
+  - patch: |
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: frontend-route
+        namespace: apps
+      spec:
+        hostnames: ["dev.${DOMAIN}"]

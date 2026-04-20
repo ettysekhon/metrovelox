@@ -1,0 +1,52 @@
+# Strimzi Kafka Operator — GKE values.
+#
+# The operator runs in the `kafka` namespace but watches Kafka / KafkaTopic
+# CRs cluster-wide so we can keep producers (tfl-producer-strimzi) alongside
+# their CronJob in `streaming` without running a second operator.
+#
+# Docs: https://strimzi.io/docs/operators/latest/configuring.html
+# Chart: https://strimzi.io/charts/
+
+watchAnyNamespace: true
+
+# Let the operator create its own ClusterRoleBinding / RoleBinding so the
+# values stay portable across forks.
+createGlobalResources: true
+
+# Pin the Kafka image tags the operator installs by default. Keeping this
+# explicit lets us Renovate-pin upgrades instead of silently tracking chart
+# latest. We intentionally do NOT override `defaultImageTag` — the chart
+# default (set in strimzi-kafka-operator/values.yaml, line 12) is already
+# pinned to the chart's own version, and overriding it with an empty
+# string renders `image: quay.io/strimzi/operator:` (trailing colon) which
+# Helm rejects as invalid YAML.
+defaultImageRegistry: quay.io
+defaultImageRepository: strimzi
+
+replicas: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 384Mi
+  limits:
+    cpu: 500m
+    memory: 768Mi
+
+# Schedule onto the spot pool to match Flink.
+tolerations:
+  - key: cloud.google.com/gke-spot
+    operator: Equal
+    value: "true"
+    effect: NoSchedule
+
+nodeSelector:
+  cloud.google.com/gke-nodepool: spot-pool
+
+# Prometheus scraping of the operator itself — Strimzi also exposes
+# Kafka/Zookeeper metrics via the Kafka CR's `metricsConfig`.
+metrics:
+  enabled: false
+
+# Feature gates; keep close to upstream defaults.
+featureGates: ""

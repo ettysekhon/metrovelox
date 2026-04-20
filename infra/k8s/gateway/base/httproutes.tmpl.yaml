@@ -1,0 +1,390 @@
+# HTTPRoute Definitions for OpenVelox Services
+# Replaces individual NGINX Ingress resources
+#
+# Migration mapping:
+#   nginx.ingress.kubernetes.io/backend-protocol  → BackendTLSPolicy
+#   nginx.ingress.kubernetes.io/proxy-*           → GCPBackendPolicy.connectionDraining
+#   nginx.ingress.kubernetes.io/limit-rps         → GCPBackendPolicy.securityPolicy
+#   nginx.ingress.kubernetes.io/rewrite-target    → filters.urlRewrite
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# KEYCLOAK (auth.example.com)
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: keycloak-route
+  namespace: platform
+  labels:
+    app: keycloak
+    app.kubernetes.io/part-of: openvelox
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - "auth.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: keycloak
+          port: 8080
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# ARGOCD (argocd.example.com)
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argocd-route
+  namespace: argocd
+  labels:
+    app: argocd
+    app.kubernetes.io/part-of: openvelox
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - "argocd.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: argocd-server
+          port: 80
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# ORCHESTRATOR (orchestrator.example.com) — Airflow API server in batch ns
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: orchestrator-route
+  namespace: batch
+  labels:
+    app.kubernetes.io/part-of: openvelox
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - "orchestrator.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: airflow-api-server
+          port: 8080
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# QUERY ENGINE (query.example.com) — currently backed by Trino
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: query-engine-route
+  namespace: data
+  labels:
+    app.kubernetes.io/part-of: openvelox
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - "query.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: trino
+          port: 8080
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# KAFKA UI (kafka.example.com) — kafbat kafka-ui for the Strimzi cluster.
+#
+# Native Keycloak OIDC + RBAC (no oauth2-proxy) — the kafka-ui client is
+# public PKCE and its roles-field is `kafka_ui_roles`. Access to the broker
+# is proxied via kafka-ui's SASL OAUTHBEARER session, not the browser token.
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kafka-ui-route
+  namespace: kafka
+  labels:
+    app: kafka-ui
+    app.kubernetes.io/part-of: openvelox
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - "kafka.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: kafka-ui
+          port: 80
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# VAULT (vault.example.com)
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: vault-route
+  namespace: security
+  labels:
+    app: vault
+    app.kubernetes.io/part-of: openvelox
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - "vault.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: vault-ui
+          port: 8200
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# ICEBERG CATALOG (catalog.example.com) — Apache Polaris REST API
+#
+# Polaris serves the Iceberg REST Catalog API used by Spark, Flink, and Trino.
+# Currently uses internal OAuth2 (root creds). When Keycloak is deployed,
+# switch to external IDP tokens via polaris.authentication.authenticator.type.
+# See: https://polaris.apache.org/guides/keycloak/
+#
+# Fine-grained authz via OPA is supported as external PDP:
+#   polaris.authorization.type=opa
+#   polaris.authorization.opa.policy-uri=http://opa.data.svc:8181/v1/data/polaris/authz
+# See: https://polaris.apache.org/in-dev/unreleased/managing-security/external-pdp/opa/
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: catalog-route
+  namespace: data
+  labels:
+    app: polaris
+    app.kubernetes.io/part-of: openvelox
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - "catalog.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: polaris
+          port: 8181
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# POLARIS CONSOLE (catalog-console.example.com) — browser UI for the Polaris
+# Iceberg catalog. SPA served by nginx, logs in via Keycloak (public client,
+# PKCE), then makes cross-origin XHRs to `catalog.<domain>` with the user's
+# bearer token. CORS on the Polaris side is enabled via helm/polaris/values-gke.yaml.
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: catalog-console-route
+  namespace: data
+  labels:
+    app: polaris-console
+    app.kubernetes.io/part-of: openvelox
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - "catalog-console.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: polaris-console
+          port: 80
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUTHORIZATION (authz.example.com) — Open Policy Agent
+#
+# OPA provides attribute-based access control via Rego policies.
+# Polaris delegates authorization decisions to OPA when configured with
+# polaris.authorization.type=opa. OPA also serves as a general-purpose
+# policy engine for other platform services.
+#
+# NOT YET DEPLOYED — placeholder route for when OPA is provisioned in the
+# security namespace. Deploy OPA via Helm:
+#   helm repo add opa https://open-policy-agent.github.io/kube-mgmt/charts
+#   helm install opa opa/opa --namespace security
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: authz-route
+  namespace: security
+  labels:
+    app: opa
+    app.kubernetes.io/part-of: openvelox
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - "authz.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: opa
+          port: 8181
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# STREAM PROCESSING (stream-processing.example.com) — Flink Dashboard
+#
+# Flink 2.2 JobManager web UI for monitoring jobs, task managers, and metrics.
+# Currently running as standalone deployment (not operator-managed).
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: stream-processing-route
+  namespace: streaming
+  labels:
+    app: flink
+    app.kubernetes.io/part-of: openvelox
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - "stream-processing.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: oauth2-proxy-flink
+          port: 4180
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# GRAFANA (grafana.example.com) — kube-prometheus-stack Grafana
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana-route
+  namespace: monitoring
+  labels:
+    app: grafana
+    app.kubernetes.io/part-of: openvelox
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - "grafana.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: prometheus-stack-grafana
+          port: 80
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# API (api.DOMAIN) — OpenVelox FastAPI backend
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-route
+  namespace: apps
+  labels:
+    app: openvelox-api
+    app.kubernetes.io/part-of: openvelox
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - "api.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: openvelox-api
+          port: 8080
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# FRONTEND (DOMAIN root) — OpenVelox Next.js dashboard
+#
+# Serves on the bare domain (e.g. ${DOMAIN}).  The frontend is the
+# public-facing portal with links to all platform services.
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: frontend-route
+  namespace: apps
+  labels:
+    app: openvelox-dashboard
+    app.kubernetes.io/part-of: openvelox
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      namespace: platform
+      sectionName: https
+  hostnames:
+    - "example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: openvelox-dashboard
+          port: 3000

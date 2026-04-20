@@ -1,0 +1,80 @@
+# OpenVelox — continuous-integration gate.
+#
+# Minimal, non-destructive checks that run on every push to main and every
+# pull request. The philosophy: if the repo declares a canonical source
+# (config.env -> rendered manifests, polaris.rego -> opa test), CI enforces
+# that the canonical source produces the exact output committed to Git.
+#
+# Scope today:
+#   * render-check — every *.tmpl.yaml renders to its committed *.yaml
+#     sibling. Catches forgotten `scripts/render-manifests.sh` runs before
+#     they hit ArgoCD and cause a drift alert.
+#   * opa-test    — Polaris OPA policy unit tests + strict lint.
+#     Catches Rego regressions before the next Polaris roll picks up a
+#     broken bundle from the hash-suffixed ConfigMap.
+#
+# Deliberately NOT covered here (tracked in docs/ROADMAP.md):
+#   * §1  — container image builds (Flink, tfl-producer, Airflow)
+#   * §10 — `terraform plan` gate between applies
+# Both will land as additional jobs in this same workflow so the status
+# checks stay in one place on the PR.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Allow manual re-runs from the Actions tab after flaky network blips,
+  # without having to force-push an empty commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Cancel older runs of the same ref — the tip of a branch is the only
+  # interesting version. Avoids backed-up queues on rapid-fire PR pushes.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render-check:
+    name: Rendered manifests are up-to-date
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install envsubst
+        # `envsubst` ships in gettext-base; Ubuntu runners already have it
+        # but we assert explicitly so a future base-image change can't
+        # silently regress scripts/render-manifests.sh.
+        run: |
+          set -euo pipefail
+          command -v envsubst >/dev/null 2>&1 || sudo apt-get update && sudo apt-get install -y gettext-base
+
+      - name: render-manifests.sh --check
+        run: scripts/render-manifests.sh --check
+
+  opa-test:
+    name: Polaris OPA policy tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache opa binary
+        id: cache-opa
+        uses: actions/cache@v4
+        with:
+          # scripts/opa-test.sh bootstraps tools/opa/opa-<version> if the
+          # system-wide `opa` isn't on PATH. Caching that directory keyed
+          # on the version string keeps subsequent runs under 10 s total.
+          path: tools/opa
+          key: opa-0.70.0-${{ runner.os }}
+
+      - name: make opa-test
+        run: make opa-test
+
+      - name: make opa-lint
+        run: make opa-lint

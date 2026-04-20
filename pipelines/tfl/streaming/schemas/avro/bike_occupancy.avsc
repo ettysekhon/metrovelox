@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "BikeOccupancy",
+  "namespace": "com.openvelox.tfl",
+  "fields": [
+    {"name": "bike_point_id", "type": "string"},
+    {"name": "common_name", "type": "string"},
+    {"name": "lat", "type": "double"},
+    {"name": "lon", "type": "double"},
+    {"name": "nb_bikes", "type": "int"},
+    {"name": "nb_ebikes", "type": "int"},
+    {"name": "nb_empty_docks", "type": "int"},
+    {"name": "nb_docks", "type": "int"},
+    {"name": "event_time", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "ingested_at", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

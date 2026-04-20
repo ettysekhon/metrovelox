@@ -1,0 +1,34 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kafka-cluster
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: openvelox
+  annotations:
+    # Must wait until the Strimzi operator has registered its CRDs. The
+    # operator app syncs at wave -5.
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/${GITHUB_ORG}/${GITHUB_REPO}.git
+    targetRevision: main
+    path: infra/k8s/kafka/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kafka
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    # CRDs may not be present on very first sync; retry.
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

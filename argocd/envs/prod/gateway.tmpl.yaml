@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: openvelox
+  # NOTE: no sync-wave — the app-of-apps (root) must not block on
+  # gateway being Healthy.  The gateway's health will remain Degraded
+  # whenever a referenced Service (e.g. openvelox-api, openvelox-dashboard,
+  # opa) is not yet deployed, which is an expected and informative signal
+  # — not something the rest of the platform should be held back by.
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/${GITHUB_ORG}/${GITHUB_REPO}.git
+    targetRevision: main
+    path: infra/k8s/gateway/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+  ignoreDifferences:
+    # GKE's Gateway controller strips spec.default.healthCheck and
+    # spec.default.logging.enable from every GCPBackendPolicy after apply
+    # (healthCheck is expected to move to a separate HealthCheckPolicy CR
+    # on modern GKE; logging.enable is implied by sampleRate).  These
+    # fields are retained in Git so the intent is versioned, but ArgoCD
+    # should not flag drift when the controller removes them live.
+    - group: networking.gke.io
+      kind: GCPBackendPolicy
+      jsonPointers:
+        - /spec/default/healthCheck
+        - /spec/default/logging/enable
+        # CLIENT_IP session affinity is not cookie-based, so GKE strips
+        # affinityCookieTtlSec (it's only valid for GENERATED_COOKIE).
+        - /spec/default/sessionAffinity/affinityCookieTtlSec

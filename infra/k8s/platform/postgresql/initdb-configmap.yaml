@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-initdb
+  namespace: platform
+data:
+  01-create-databases.sh: |
+    #!/bin/bash
+    set -e
+
+    # Creates application databases and users on first PostgreSQL boot.
+    # Passwords are injected as env vars from Kubernetes secrets.
+
+    create_app_db() {
+      local db="$1" user="$2" pass_var="$3"
+      local pass="${!pass_var}"
+
+      if [ -z "$pass" ]; then
+        echo "WARN: $pass_var not set — skipping $db"
+        return
+      fi
+
+      echo "Creating role '$user' and database '$db' ..."
+      psql -v ON_ERROR_STOP=0 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-SQL
+        DO \$\$
+        BEGIN
+          IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '$user') THEN
+            CREATE ROLE $user WITH LOGIN PASSWORD '$pass';
+          ELSE
+            ALTER ROLE $user WITH PASSWORD '$pass';
+          END IF;
+        END
+        \$\$;
+    SQL
+
+      psql -v ON_ERROR_STOP=0 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+        -c "SELECT 1 FROM pg_database WHERE datname = '$db'" | grep -q 1 \
+        || psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+          -c "CREATE DATABASE $db OWNER $user;"
+
+      psql -v ON_ERROR_STOP=0 --username "$POSTGRES_USER" --dbname "$db" <<-SQL
+        GRANT ALL PRIVILEGES ON DATABASE $db TO $user;
+        GRANT ALL ON SCHEMA public TO $user;
+        ALTER SCHEMA public OWNER TO $user;
+    SQL
+
+      echo "Database '$db' ready."
+    }
+
+    create_app_db keycloak keycloak KEYCLOAK_DB_PASSWORD
+    create_app_db airflow  airflow  AIRFLOW_DB_PASSWORD
+    create_app_db polaris  polaris  POLARIS_DB_PASSWORD
+    create_app_db apicurio apicurio APICURIO_DB_PASSWORD

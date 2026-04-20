@@ -1,0 +1,27 @@
+# Spark Operator — GKE values
+#
+# spark.jobNamespaces must list every namespace where
+# SparkApplications will be submitted. The operator only watches
+# namespaces in this list.
+
+spark:
+  jobNamespaces:
+    - batch
+
+controller:
+  nodeSelector:
+    cloud.google.com/gke-nodepool: spot-pool
+  tolerations:
+    - key: cloud.google.com/gke-spot
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+
+webhook:
+  nodeSelector:
+    cloud.google.com/gke-nodepool: spot-pool
+  tolerations:
+    - key: cloud.google.com/gke-spot
+      operator: Equal
+      value: "true"
+      effect: NoSchedule

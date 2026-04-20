@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: trino
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: openvelox
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - chart: trino
+      repoURL: https://trinodb.github.io/charts
+      # Kept in lock-step with argocd/envs/prod/trino.yaml. Chart 1.42.1
+      # ships app version 479.
+      targetRevision: 1.42.1
+      helm:
+        valueFiles:
+          - $values/helm/trino/values-gke.yaml
+          - $values/helm/trino/values-dev.yaml
+    - repoURL: https://github.com/${GITHUB_ORG}/${GITHUB_REPO}.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: data
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - CreateNamespace=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: trino-worker
+      jsonPointers:
+        - /spec/replicas

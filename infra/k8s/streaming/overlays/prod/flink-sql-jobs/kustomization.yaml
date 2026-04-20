@@ -1,0 +1,38 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: streaming
+
+# Packages the three TfL Flink SQL pipelines (raw -> curated -> analytics)
+# as a single ConfigMap plus one submission Kubernetes Job per layer.
+#
+# Source-of-truth SQL lives in `pipelines/tfl/streaming/flink-jobs/`;
+# cross-tree file inclusion relies on
+# `kustomize.buildOptions: --load-restrictor=LoadRestrictionsNone`
+# declared in `infra/k8s/platform/argocd/base/argocd-config.yaml`.
+# See ./README.md for the operational flow.
+
+resources:
+  - submit-raw.yaml
+  - submit-curated.yaml
+  - submit-analytics.yaml
+
+configMapGenerator:
+  - name: flink-sql-jobs
+    # Names here become the mount-path filenames that submit jobs read.
+    # The layer names (raw/curated/analytics) are squashed with underscores
+    # so a single `/opt/flink/jobs/<file>` layout is easy to reference.
+    files:
+      - raw_ingest_all.sql=../../../../../../pipelines/tfl/streaming/flink-jobs/raw/ingest_all.sql
+      - curated_transform.sql=../../../../../../pipelines/tfl/streaming/flink-jobs/curated/transform.sql
+      - analytics_aggregations.sql=../../../../../../pipelines/tfl/streaming/flink-jobs/analytics/aggregations.sql
+    options:
+      # Stable name — the submit Jobs reference it by fixed name so we
+      # don't want the hash-suffixed variant.  Trade-off: editing a SQL
+      # file won't automatically trigger a rolling Job re-run; the Argo
+      # `Sync` hook annotation plus `hook-delete-policy: BeforeHookCreation`
+      # is what forces a fresh submission on every sync.
+      disableNameSuffixHash: true
+      # Label propagation — easier to `kubectl describe` later.
+      labels:
+        app.kubernetes.io/part-of: flink-sql-jobs
+        openvelox/stream: tfl

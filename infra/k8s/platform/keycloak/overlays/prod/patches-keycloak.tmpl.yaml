@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: platform
+spec:
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    spec:
+      containers:
+        - name: keycloak
+          env:
+            - name: KC_HOSTNAME
+              value: "https://auth.${DOMAIN}"
+            - name: KC_HOSTNAME_ADMIN
+              value: "https://auth.${DOMAIN}"

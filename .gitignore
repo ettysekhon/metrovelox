@@ -1,0 +1,55 @@
+# Environment
+env.sh
+.env
+.env.*
+!.env.example
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+.next/
+out/
+.vercel
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Local dev tooling (bootstrapped by scripts/opa-test.sh etc.)
+tools/
+
+# Secrets
+*.pem
+*.key
+secrets/
+vault-init*.json
+SECRETS.md
+
+# Documentation
+docs/DEPLOYMENT_ISSUES.md
+docs/GIT_LOG_HISTORY.md

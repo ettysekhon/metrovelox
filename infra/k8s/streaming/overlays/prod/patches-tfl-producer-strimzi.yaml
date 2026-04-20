@@ -1,0 +1,13 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tfl-producer-strimzi
+  namespace: streaming
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: producer
+              image: europe-west2-docker.pkg.dev/openvelox-elt-01/openvelox/tfl-producer:latest

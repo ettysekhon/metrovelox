@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: strimzi-operator
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: openvelox
+  annotations:
+    # Operator must install CRDs before Phase B.2 (Kafka CR) can reconcile.
+    argocd.argoproj.io/sync-wave: "-5"
+spec:
+  project: default
+  sources:
+    - chart: strimzi-kafka-operator
+      repoURL: https://strimzi.io/charts/
+      targetRevision: 0.51.0
+      helm:
+        valueFiles:
+          - $values/helm/strimzi-operator/values-gke.yaml
+    - repoURL: https://github.com/${GITHUB_ORG}/${GITHUB_REPO}.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kafka
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

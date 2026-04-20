@@ -1,0 +1,99 @@
+# Spark smoke test: read Parquet from GCS, write Iceberg table via Polaris REST catalog.
+# Requires: Spark Operator installed, spark KSA with WIF to GCS, Polaris running in data ns.
+#
+# Usage:
+#   kubectl apply -f platform/spark/k8s/smoke-test.yaml
+#   kubectl logs -n batch smoke-test-driver -f
+#   kubectl delete sparkapplication smoke-test -n batch
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: smoke-test
+  namespace: batch
+spec:
+  type: Python
+  pythonVersion: "3"
+  mode: cluster
+  image: apache/spark:4.1.0-scala2.13-java21-python3-r-ubuntu
+  imagePullPolicy: IfNotPresent
+  mainApplicationFile: local:///opt/spark/scripts/smoke_test.py
+  sparkVersion: "4.1.0"
+  sparkConf:
+    spark.sql.extensions: org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+    spark.sql.catalog.lakehouse: org.apache.iceberg.spark.SparkCatalog
+    spark.sql.catalog.lakehouse.type: rest
+    spark.sql.catalog.lakehouse.uri: http://polaris.data.svc.cluster.local:8181/api/catalog
+    spark.sql.catalog.lakehouse.warehouse: raw
+    spark.sql.catalog.lakehouse.credential: root:polaris-root-secret
+    spark.sql.catalog.lakehouse.scope: PRINCIPAL_ROLE:ALL
+    spark.sql.catalog.lakehouse.token-refresh-enabled: "true"
+    spark.sql.defaultCatalog: lakehouse
+    spark.jars.packages: org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.0,com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.25
+    spark.sql.catalog.lakehouse.io-impl: org.apache.iceberg.hadoop.HadoopFileIO
+    spark.jars.ivy: /tmp/.ivy2
+    spark.hadoop.fs.gs.impl: com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem
+    spark.hadoop.google.cloud.auth.type: APPLICATION_DEFAULT
+  driver:
+    cores: 1
+    memory: "1g"
+    serviceAccount: spark
+    labels:
+      app: smoke-test
+    tolerations:
+      - key: cloud.google.com/gke-spot
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+    configMaps:
+      - name: smoke-test-script
+        path: /opt/spark/scripts
+  executor:
+    cores: 1
+    instances: 1
+    memory: "1g"
+    serviceAccount: spark
+    labels:
+      app: smoke-test
+    tolerations:
+      - key: cloud.google.com/gke-spot
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+  restartPolicy:
+    type: Never
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smoke-test-script
+  namespace: batch
+data:
+  smoke_test.py: |
+    """Smoke test: read Parquet from GCS, write as Iceberg table via Polaris REST catalog."""
+    import os
+    from pyspark.sql import SparkSession
+
+    bucket = os.environ["GCS_BUCKET"]
+    input_path = f"gs://{bucket}/raw/tube/line_status_event_stream/"
+
+    spark = (
+        SparkSession.builder
+        .appName("smoke-test-iceberg-write")
+        .getOrCreate()
+    )
+
+    df = spark.read.parquet(input_path)
+    row_count = df.count()
+    print(f"Read {row_count} rows from {input_path}")
+    df.printSchema()
+    df.show(5, truncate=False)
+
+    table = "tube.line_status_event_stream"
+    df.writeTo(table).createOrReplace()
+    print(f"SUCCESS: Wrote {row_count} rows to Iceberg table: {table}")
+
+    verify = spark.table(table)
+    print(f"VERIFIED: {verify.count()} rows read back from Iceberg table")
+
+    spark.stop()
+    print("Smoke test complete.")

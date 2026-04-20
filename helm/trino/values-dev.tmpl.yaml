@@ -1,0 +1,64 @@
+# Development environment overrides — layered on top of values-gke.yaml
+#
+# Helm list merge is replace (not append), so we redeclare the full
+# `additionalConfigProperties` list with dev hostnames.
+additionalConfigProperties:
+  - "http-server.process-forwarded=true"
+  - "http-server.authentication.type=oauth2"
+  - "http-server.authentication.oauth2.issuer=https://dev.auth.${DOMAIN}/realms/openvelox"
+  - "http-server.authentication.oauth2.client-id=trino"
+  - "http-server.authentication.oauth2.client-secret=${ENV:TRINO_OAUTH_CLIENT_SECRET}"
+  - "http-server.authentication.oauth2.principal-field=preferred_username"
+  - "http-server.authentication.oauth2.scopes=openid,profile,email"
+  - "web-ui.authentication.type=oauth2"
+  - "internal-communication.shared-secret=${ENV:TRINO_OAUTH_CLIENT_SECRET}"
+
+# The Polaris credential below is sourced from the `POLARIS_TRINO_CREDENTIAL`
+# env var (see values-gke.yaml `env:`). On a fresh cluster Vault seeds this
+# with the Polaris root credential so Trino boots immediately;
+# scripts/polaris-bootstrap-principals.sh narrows it to a per-service
+# principal with CATALOG_MANAGE_CONTENT only.
+#
+# GCS data-plane auth uses Workload Identity on the `trino` K8s SA (not
+# Polaris-vended OAuth2 tokens — see values-prod.tmpl.yaml for the full
+# rationale).
+serviceAccount:
+  create: true
+  name: trino
+  annotations:
+    iam.gke.io/gcp-service-account: "trino-sa@openvelox-dev-01.iam.gserviceaccount.com"
+
+additionalCatalogs:
+  raw: |
+    connector.name=iceberg
+    iceberg.catalog.type=rest
+    iceberg.rest-catalog.uri=http://polaris.data.svc.cluster.local:8181/api/catalog
+    iceberg.rest-catalog.warehouse=raw
+    iceberg.rest-catalog.security=OAUTH2
+    iceberg.rest-catalog.oauth2.credential=${ENV:POLARIS_TRINO_CREDENTIAL}
+    iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL
+    fs.native-gcs.enabled=true
+    gcs.auth-type=APPLICATION_DEFAULT
+    gcs.project-id=openvelox-dev-01
+  curated: |
+    connector.name=iceberg
+    iceberg.catalog.type=rest
+    iceberg.rest-catalog.uri=http://polaris.data.svc.cluster.local:8181/api/catalog
+    iceberg.rest-catalog.warehouse=curated
+    iceberg.rest-catalog.security=OAUTH2
+    iceberg.rest-catalog.oauth2.credential=${ENV:POLARIS_TRINO_CREDENTIAL}
+    iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL
+    fs.native-gcs.enabled=true
+    gcs.auth-type=APPLICATION_DEFAULT
+    gcs.project-id=openvelox-dev-01
+  analytics: |
+    connector.name=iceberg
+    iceberg.catalog.type=rest
+    iceberg.rest-catalog.uri=http://polaris.data.svc.cluster.local:8181/api/catalog
+    iceberg.rest-catalog.warehouse=analytics
+    iceberg.rest-catalog.security=OAUTH2
+    iceberg.rest-catalog.oauth2.credential=${ENV:POLARIS_TRINO_CREDENTIAL}
+    iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL
+    fs.native-gcs.enabled=true
+    gcs.auth-type=APPLICATION_DEFAULT
+    gcs.project-id=openvelox-dev-01

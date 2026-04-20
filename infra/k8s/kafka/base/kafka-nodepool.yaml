@@ -1,0 +1,51 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: mixed
+  namespace: kafka
+  labels:
+    # Binds this pool to the `openvelox` Kafka CR below.
+    strimzi.io/cluster: openvelox
+spec:
+  # KRaft combined mode — single-node dev cluster keeps the footprint tight
+  # while still exercising the full OAuth/authz path we care about.
+  roles:
+    - controller
+    - broker
+  replicas: 1
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 10Gi
+        class: standard
+        deleteClaim: false
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  jvmOptions:
+    -Xms: 512m
+    -Xmx: 1280m
+  # Pin onto the spot pool to share capacity with the rest of the streaming
+  # stack; single-broker dev cluster is non-critical.
+  template:
+    pod:
+      tolerations:
+        - key: cloud.google.com/gke-spot
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: cloud.google.com/gke-nodepool
+                    operator: In
+                    values:
+                      - spot-pool

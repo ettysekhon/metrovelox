@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "BusArrival",
+  "namespace": "com.openvelox.tfl",
+  "fields": [
+    {"name": "arrival_id", "type": "string"},
+    {"name": "vehicle_id", "type": "string"},
+    {"name": "line_id", "type": "string"},
+    {"name": "line_name", "type": "string"},
+    {"name": "destination_name", "type": ["null", "string"], "default": null},
+    {"name": "stop_id", "type": "string"},
+    {"name": "stop_name", "type": ["null", "string"], "default": null},
+    {"name": "direction", "type": ["null", "string"], "default": null},
+    {"name": "time_to_station", "type": "int"},
+    {"name": "event_time", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "ingested_at", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

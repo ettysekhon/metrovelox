@@ -1,0 +1,101 @@
+# Lean kube-prometheus-stack for GKE (resource-constrained)
+# Chart: prometheus-community/kube-prometheus-stack
+#
+# Scheduling strategy:
+#   - All monitoring components → system pool (stable, always-on)
+#   - node-exporter → DaemonSet on all nodes (needs spot toleration)
+
+# ── Prometheus (system pool — needs persistence and stability) ──
+prometheus:
+  prometheusSpec:
+    retention: 48h
+    retentionSize: "4GB"
+    replicas: 1
+    nodeSelector: {}
+    tolerations: []
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: standard-rwo
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+    additionalScrapeConfigs:
+      # TODO: add a PodMonitor/ServiceMonitor for Strimzi kafka-exporter
+      # (openvelox-kafka-exporter svc on 9404) once metrics are needed.
+      - job_name: airflow-statsd
+        static_configs:
+          - targets:
+              - airflow-statsd.batch.svc.cluster.local:9102
+        scrape_interval: 30s
+      # TODO: restore Flink scraping via a ServiceMonitor/PodMonitor once the
+      # operator-managed flink-session pods expose 9249 through a named
+      # service. The old static target (flink-jobmanager:9249) referenced the
+      # retired standalone Deployment and would 404 against the session REST
+      # service (which only publishes 8081).
+
+# ── Grafana (system pool — critical for dashboards + SSO) ──
+grafana:
+  assertNoLeakedSecrets: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  persistence:
+    enabled: false
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+    datasources:
+      enabled: true
+  # grafana.ini OIDC + domain config set per-env in values-{env}.yaml
+
+# ── Alertmanager (disabled) ──
+alertmanager:
+  enabled: false
+
+# ── Node exporter (DaemonSet — runs everywhere, needs spot toleration) ──
+nodeExporter:
+  tolerations:
+    - key: cloud.google.com/gke-spot
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+
+# ── kube-state-metrics (system pool — lightweight, needs stability) ──
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+
+# ── Prometheus Operator (system pool — manages CRDs, needs stability) ──
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+  tls:
+    enabled: false
+  admissionWebhooks:
+    enabled: false

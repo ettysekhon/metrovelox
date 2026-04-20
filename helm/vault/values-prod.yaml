@@ -1,0 +1,27 @@
+# Production environment overrides for Vault
+server:
+  standalone:
+    config: |
+      ui = true
+
+      listener "tcp" {
+        address     = "[::]:8200"
+        tls_disable = 1
+      }
+
+      storage "raft" {
+        path = "/vault/data"
+      }
+
+      seal "gcpckms" {
+        project    = "openvelox-elt-01"
+        region     = "europe-west2"
+        key_ring   = "vault-unseal"
+        crypto_key = "vault-unseal-key"
+      }
+
+  serviceAccount:
+    create: true
+    name: vault
+    annotations:
+      iam.gke.io/gcp-service-account: vault-sa@openvelox-elt-01.iam.gserviceaccount.com

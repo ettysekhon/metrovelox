@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openvelox-dashboard
+  namespace: apps
+  labels:
+    app: openvelox-dashboard
+    app.kubernetes.io/part-of: openvelox
+    app.kubernetes.io/component: dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openvelox-dashboard
+  template:
+    metadata:
+      labels:
+        app: openvelox-dashboard
+    spec:
+      containers:
+        - name: dashboard
+          image: openvelox-dashboard:latest
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              value: "http://openvelox-api.apps.svc.cluster.local:8080"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openvelox-dashboard
+  namespace: apps
+  labels:
+    app: openvelox-dashboard
+    app.kubernetes.io/part-of: openvelox
+spec:
+  selector:
+    app: openvelox-dashboard
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http

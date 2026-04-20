@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: spark-operator
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: openvelox
+spec:
+  project: default
+  sources:
+    - chart: spark-operator
+      repoURL: https://kubeflow.github.io/spark-operator
+      targetRevision: 2.1.0
+      helm:
+        skipCrds: true
+        valueFiles:
+          - $values/helm/spark-operator/values-gke.yaml
+    - repoURL: https://github.com/${GITHUB_ORG}/${GITHUB_REPO}.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: batch
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - Replace=true

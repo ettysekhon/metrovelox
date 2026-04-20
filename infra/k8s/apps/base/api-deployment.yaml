@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openvelox-api
+  namespace: apps
+  labels:
+    app: openvelox-api
+    app.kubernetes.io/part-of: openvelox
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openvelox-api
+  template:
+    metadata:
+      labels:
+        app: openvelox-api
+    spec:
+      containers:
+        - name: api
+          image: openvelox-api:latest
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: TRINO_HOST
+              value: "trino.data.svc.cluster.local"
+            - name: TRINO_PORT
+              value: "8080"
+            - name: TRINO_HTTP_SCHEME
+              value: "http"
+            - name: KAFKA_BROKERS
+              value: "openvelox-kafka-bootstrap.kafka.svc.cluster.local:9092"
+            - name: KAFKA_SECURITY_PROTOCOL
+              value: "SASL_PLAINTEXT"
+            - name: KAFKA_SASL_MECHANISM
+              value: "OAUTHBEARER"
+            # Keycloak OAuth2 for both Trino (JWT auth) and Kafka (SASL OAUTHBEARER).
+            # Credentials come from the `openvelox-api-oauth` secret, synced by
+            # External-Secrets from Vault — see infra/k8s/security/external-secrets.yaml.
+            - name: KEYCLOAK_TOKEN_URL
+              value: "http://keycloak.platform.svc.cluster.local:8080/realms/openvelox/protocol/openid-connect/token"
+            - name: OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: openvelox-api-oauth
+                  key: client-id
+            - name: OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: openvelox-api-oauth
+                  key: client-secret
+          envFrom:
+            - secretRef:
+                name: tfl-api-key
+                optional: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openvelox-api
+  namespace: apps
+  labels:
+    app: openvelox-api
+    app.kubernetes.io/part-of: openvelox
+spec:
+  selector:
+    app: openvelox-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http

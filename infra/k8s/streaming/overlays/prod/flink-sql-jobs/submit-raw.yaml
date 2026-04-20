@@ -1,0 +1,138 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flink-submit-raw
+  namespace: streaming
+  labels:
+    app.kubernetes.io/name: flink-sql-job
+    app.kubernetes.io/part-of: flink-sql-jobs
+    openvelox/flink-layer: raw
+    openvelox/stream: tfl
+  annotations:
+    # Argo runs this after the default sync phase, so the Flink session
+    # cluster is up before we try to submit.  BeforeHookCreation deletes
+    # the previous run of the same Job (batch/v1 Jobs are immutable in
+    # their podTemplate) before re-creating it, which is what makes the
+    # Job re-usable for "edit SQL -> git push -> fresh submission".
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    # Wave 10 follows the default sync (wave 0).  Keeps raw/curated/
+    # analytics submissions strictly ordered in case one ever references
+    # the previous layer's catalog in DDL (today they don't, but the
+    # ordering matches the data flow).
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  # Clean the completed Pod quickly; keep the Job object around an hour
+  # for debugging in case sync-client logs need a second look.
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: flink-sql-job
+        openvelox/flink-layer: raw
+        openvelox/stream: tfl
+    spec:
+      serviceAccountName: flink
+      restartPolicy: OnFailure
+      # Spot nodes match where the Flink session runs; no point paying
+      # for standard just to fire a curl + sql-client.
+      nodeSelector:
+        cloud.google.com/gke-nodepool: spot-pool
+      tolerations:
+        - key: cloud.google.com/gke-spot
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      volumes:
+        - name: sql-files
+          configMap:
+            name: flink-sql-jobs
+      containers:
+        - name: sql-client
+          # Reuse the prod flink-lakehouse image; it already bundles the
+          # Iceberg + Kafka + Strimzi-OAuth + GCS + Hadoop JARs that
+          # sql-client's DDL parser needs on its classpath, so no init
+          # container download dance is required.  Keep in sync with the
+          # image pinned in patches-flink-session.yaml.
+          image: europe-west2-docker.pkg.dev/openvelox-elt-01/openvelox/flink-lakehouse:2.2
+          imagePullPolicy: IfNotPresent
+          # Point the Flink client at the session cluster's REST endpoint.
+          # `FLINK_CONF_DIR` lets us overlay just the rest.* entries
+          # without touching the image's original conf/flink-conf.yaml.
+          env:
+            - name: FLINK_CONF_DIR
+              value: /tmp/flink-conf
+            - name: FLINK_PIPELINE_NAME
+              value: tfl-raw-ingest
+            - name: FLINK_SQL_FILE
+              value: /opt/flink/jobs/raw_ingest_all.sql
+            - name: KAFKA_BOOTSTRAP
+              value: openvelox-kafka-bootstrap.kafka.svc.cluster.local:9092
+            - name: KAFKA_TOKEN_ENDPOINT
+              value: http://keycloak.platform.svc.cluster.local:8080/realms/openvelox/protocol/openid-connect/token
+            - name: KAFKA_FLINK_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-flink-oauth
+                  key: client-id
+            - name: KAFKA_FLINK_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-flink-oauth
+                  key: client-secret
+          volumeMounts:
+            - name: sql-files
+              mountPath: /opt/flink/jobs
+              readOnly: true
+          command: ["/bin/bash", "-euo", "pipefail", "-c"]
+          args:
+            - |
+              #
+              # 1. Compose a minimal flink-conf.yaml that retargets the
+              #    embedded client at the session cluster.
+              #
+              mkdir -p "${FLINK_CONF_DIR}"
+              cp -f /opt/flink/conf/* "${FLINK_CONF_DIR}/" 2>/dev/null || true
+              cat > "${FLINK_CONF_DIR}/flink-conf.yaml" <<EOF
+              rest.address: flink-session-rest.streaming.svc.cluster.local
+              rest.port: 8081
+              jobmanager.rpc.address: flink-session-rest.streaming.svc.cluster.local
+              execution.target: remote
+              EOF
+
+              #
+              # 2. Idempotency guard.  If a Flink job with this pipeline
+              #    name is already RUNNING (soak survived, just re-syncing
+              #    git-state), exit 0 and let Argo treat the hook as
+              #    successful — re-submitting would create a duplicate
+              #    streaming job writing to the same Iceberg tables.
+              #
+              REST="http://flink-session-rest.streaming.svc.cluster.local:8081"
+              if curl -fsS "${REST}/jobs/overview" \
+                | python3 -c "import json,os,sys; d=json.load(sys.stdin); n=os.environ['FLINK_PIPELINE_NAME']; sys.exit(0 if any(j['name']==n and j['state']=='RUNNING' for j in d.get('jobs',[])) else 1)"; then
+                echo "pipeline ${FLINK_PIPELINE_NAME} already RUNNING — no-op"
+                exit 0
+              fi
+
+              #
+              # 3. Render ${KAFKA_*} placeholders then submit.  sql-client
+              #    in streaming mode returns as soon as the job graph is
+              #    accepted by the JobManager; the job itself continues
+              #    running detached in the session cluster.
+              #
+              TMP_SQL="$(mktemp --suffix=.sql)"
+              # Prepend a SET pipeline.name so operators can find the job
+              # by the same stable name we guard against in step 2.
+              printf "SET 'pipeline.name' = '%s';\n\n" "${FLINK_PIPELINE_NAME}" > "${TMP_SQL}"
+              envsubst < "${FLINK_SQL_FILE}" >> "${TMP_SQL}"
+
+              echo "=== submitting ${FLINK_PIPELINE_NAME} ==="
+              /opt/flink/bin/sql-client.sh -f "${TMP_SQL}"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi

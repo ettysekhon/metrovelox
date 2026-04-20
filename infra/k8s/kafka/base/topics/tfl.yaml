@@ -1,0 +1,108 @@
+# KafkaTopic CRs for the TfL pipeline. The topic operator
+# (`openvelox-entity-operator`) reconciles these onto the broker and
+# `auto.create.topics.enable=false` on the Kafka CR keeps the topic
+# set explicit. Topic names match what tfl_producer_strimzi.py writes
+# and what Flink consumes (stream/enriched jobs).
+#
+# Layout:
+#
+#   tfl.raw.bike-points           — BikePoint snapshot from TfL every 5 min
+#   tfl.raw.bus-arrivals          — StopPoint/{id}/Arrivals per stop
+#   tfl.raw.line-status           — Line/Mode/{modes}/Status rollup
+#   tfl.curated.bike-occupancy    — Flink curated hot-path (upsert, compacted)
+#   tfl.analytics.line-status-latest — Flink analytics hot-path (upsert, compacted)
+#
+# The curated/analytics topics back Flink `upsert-kafka` sinks — keyed by
+# bike_point_id / line_id and compacted so consumers always see the latest
+# state per key without replaying the full retention window.
+#
+# RF=1 / min-ISR=1 is deliberate for this single-broker cluster — see
+# docs/ROADMAP.md §7. Bump both to 3 once we scale the node pool out,
+# and Strimzi will migrate partitions automatically.
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: tfl.raw.bike-points
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openvelox
+    openvelox/stream: tfl
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000
+    cleanup.policy: delete
+    min.insync.replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: tfl.raw.bus-arrivals
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openvelox
+    openvelox/stream: tfl
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000
+    cleanup.policy: delete
+    min.insync.replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: tfl.raw.line-status
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openvelox
+    openvelox/stream: tfl
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000
+    cleanup.policy: delete
+    min.insync.replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: tfl.curated.bike-occupancy
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openvelox
+    openvelox/stream: tfl
+    openvelox/layer: curated
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    # Compacted so the latest state per bike_point_id is always retrievable,
+    # even after the retention window. Backs the Flink `upsert-kafka` sink
+    # in pipelines/tfl/streaming/flink-jobs/curated/transform.sql.
+    cleanup.policy: compact
+    min.cleanable.dirty.ratio: "0.1"
+    segment.ms: 3600000
+    min.insync.replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: tfl.analytics.line-status-latest
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: openvelox
+    openvelox/stream: tfl
+    openvelox/layer: analytics
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    cleanup.policy: compact
+    min.cleanable.dirty.ratio: "0.1"
+    segment.ms: 3600000
+    min.insync.replicas: 1

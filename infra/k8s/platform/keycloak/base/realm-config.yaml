@@ -1,0 +1,400 @@
+# Keycloak Realm Configuration for OpenVelox
+# This ConfigMap contains the realm JSON that will be imported on startup
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm-config
+  namespace: platform
+  labels:
+    app: keycloak
+    app.kubernetes.io/part-of: openvelox
+data:
+  openvelox-realm.json: |
+    {
+      "realm": "openvelox",
+      "enabled": true,
+      "displayName": "OpenVelox",
+      "displayNameHtml": "<div class=\"kc-logo-text\"><span>OpenVelox</span></div>",
+      "sslRequired": "external",
+      "registrationAllowed": false,
+      "loginWithEmailAllowed": true,
+      "duplicateEmailsAllowed": false,
+      "resetPasswordAllowed": true,
+      "editUsernameAllowed": false,
+      "bruteForceProtected": true,
+      "permanentLockout": false,
+      "maxFailureWaitSeconds": 900,
+      "minimumQuickLoginWaitSeconds": 60,
+      "waitIncrementSeconds": 60,
+      "quickLoginCheckMilliSeconds": 1000,
+      "maxDeltaTimeSeconds": 43200,
+      "failureFactor": 5,
+      "defaultSignatureAlgorithm": "RS256",
+      "accessTokenLifespan": 300,
+      "accessTokenLifespanForImplicitFlow": 900,
+      "ssoSessionIdleTimeout": 1800,
+      "ssoSessionMaxLifespan": 36000,
+      "offlineSessionIdleTimeout": 2592000,
+      "accessCodeLifespan": 60,
+      "accessCodeLifespanUserAction": 300,
+      "accessCodeLifespanLogin": 1800,
+      "actionTokenGeneratedByAdminLifespan": 43200,
+      "actionTokenGeneratedByUserLifespan": 300,
+      "roles": {
+        "realm": [
+          {
+            "name": "admin",
+            "description": "Platform administrator - full access to all systems",
+            "composite": false
+          },
+          {
+            "name": "developer",
+            "description": "Developer - access to development tools and environments",
+            "composite": false
+          },
+          {
+            "name": "operator",
+            "description": "Operations - access to monitoring and operational tools",
+            "composite": false
+          },
+          {
+            "name": "viewer",
+            "description": "Viewer - read-only access across systems",
+            "composite": false
+          },
+          {
+            "name": "airflow-admin",
+            "description": "Airflow administrator - full DAG and user management",
+            "composite": false
+          },
+          {
+            "name": "airflow-op",
+            "description": "Airflow operator - manage connections, pools, variables",
+            "composite": false
+          },
+          {
+            "name": "airflow-user",
+            "description": "Airflow user - trigger DAGs and view logs",
+            "composite": false
+          },
+          {
+            "name": "airflow-viewer",
+            "description": "Airflow viewer - read-only access to DAGs",
+            "composite": false
+          },
+          {
+            "name": "argocd-admin",
+            "description": "ArgoCD administrator - full GitOps management",
+            "composite": false
+          },
+          {
+            "name": "argocd-developer",
+            "description": "ArgoCD developer - sync and view applications",
+            "composite": false
+          },
+          {
+            "name": "grafana-admin",
+            "description": "Grafana administrator - full dashboard management",
+            "composite": false
+          },
+          {
+            "name": "grafana-editor",
+            "description": "Grafana editor - create and edit dashboards",
+            "composite": false
+          },
+          {
+            "name": "grafana-viewer",
+            "description": "Grafana viewer - read-only dashboard access",
+            "composite": false
+          }
+        ]
+      },
+      "groups": [
+        {
+          "name": "platform-admins",
+          "path": "/platform-admins",
+          "realmRoles": ["admin", "airflow-admin", "argocd-admin", "grafana-admin"]
+        },
+        {
+          "name": "developers",
+          "path": "/developers",
+          "realmRoles": ["developer", "airflow-user", "argocd-developer", "grafana-editor"]
+        },
+        {
+          "name": "operators",
+          "path": "/operators",
+          "realmRoles": ["operator", "airflow-op", "grafana-editor"]
+        },
+        {
+          "name": "viewers",
+          "path": "/viewers",
+          "realmRoles": ["viewer", "airflow-viewer", "grafana-viewer"]
+        }
+      ],
+      "defaultDefaultClientScopes": [
+        "role_list",
+        "profile",
+        "email",
+        "roles",
+        "web-origins",
+        "acr"
+      ],
+      "defaultOptionalClientScopes": [
+        "offline_access",
+        "address",
+        "phone",
+        "microprofile-jwt"
+      ],
+      "clients": [
+        {
+          "clientId": "openvelox-web",
+          "name": "OpenVelox Web Application",
+          "description": "Next.js frontend application",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "rootUrl": "https://app.example.com",
+          "baseUrl": "/",
+          "redirectUris": [
+            "https://app.example.com/*",
+            "https://app.example.com/api/auth/callback/keycloak",
+            "http://localhost:3000/*",
+            "http://localhost:3000/api/auth/callback/keycloak"
+          ],
+          "webOrigins": [
+            "https://app.example.com",
+            "http://localhost:3000"
+          ],
+          "defaultClientScopes": ["openid", "email", "profile", "roles"],
+          "optionalClientScopes": ["offline_access"],
+          "attributes": {
+            "pkce.code.challenge.method": "S256",
+            "post.logout.redirect.uris": "https://app.example.com/*##http://localhost:3000/*"
+          }
+        },
+        {
+          "clientId": "openvelox-api",
+          "name": "OpenVelox Backend API",
+          "description": "FastAPI backend service - JWT validation only",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "bearerOnly": true,
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "defaultClientScopes": ["openid", "email", "profile", "roles"],
+          "attributes": {
+            "use.refresh.tokens": "false"
+          }
+        },
+        {
+          "clientId": "airflow",
+          "name": "Apache Airflow",
+          "description": "Airflow workflow orchestration UI",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "secret": "${AIRFLOW_CLIENT_SECRET}",
+          "rootUrl": "https://airflow.example.com",
+          "baseUrl": "/",
+          "redirectUris": [
+            "https://airflow.example.com/*",
+            "https://airflow.example.com/oauth-authorized/keycloak"
+          ],
+          "webOrigins": ["https://airflow.example.com"],
+          "defaultClientScopes": ["openid", "email", "profile", "roles"],
+          "protocolMappers": [
+            {
+              "name": "realm-roles",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-realm-role-mapper",
+              "consentRequired": false,
+              "config": {
+                "claim.name": "roles",
+                "multivalued": "true",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "argocd",
+          "name": "ArgoCD GitOps",
+          "description": "ArgoCD continuous deployment UI",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "secret": "${ARGOCD_CLIENT_SECRET}",
+          "rootUrl": "https://argocd.example.com",
+          "baseUrl": "/",
+          "redirectUris": [
+            "https://argocd.example.com/auth/callback"
+          ],
+          "webOrigins": ["https://argocd.example.com"],
+          "defaultClientScopes": ["openid", "email", "profile", "groups"],
+          "protocolMappers": [
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "consentRequired": false,
+              "config": {
+                "claim.name": "groups",
+                "full.path": "false",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "grafana",
+          "name": "Grafana Monitoring",
+          "description": "Grafana observability dashboard",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "secret": "${GRAFANA_CLIENT_SECRET}",
+          "rootUrl": "https://grafana.example.com",
+          "baseUrl": "/",
+          "redirectUris": [
+            "https://grafana.example.com/login/generic_oauth"
+          ],
+          "webOrigins": ["https://grafana.example.com"],
+          "defaultClientScopes": ["openid", "email", "profile", "roles"],
+          "protocolMappers": [
+            {
+              "name": "realm-roles",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-realm-role-mapper",
+              "consentRequired": false,
+              "config": {
+                "claim.name": "roles",
+                "multivalued": "true",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "mlflow",
+          "name": "MLflow Tracking",
+          "description": "MLflow experiment tracking and model registry",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "secret": "${MLFLOW_CLIENT_SECRET}",
+          "rootUrl": "https://mlflow.example.com",
+          "baseUrl": "/",
+          "redirectUris": [
+            "https://mlflow.example.com/*",
+            "https://mlflow.example.com/oauth2/callback"
+          ],
+          "webOrigins": ["https://mlflow.example.com"],
+          "defaultClientScopes": ["openid", "email", "profile"]
+        }
+      ],
+      "clientScopes": [
+        {
+          "name": "roles",
+          "description": "OpenID Connect scope for realm roles",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "true",
+            "consent.screen.text": "${rolesScopeConsentText}"
+          },
+          "protocolMappers": [
+            {
+              "name": "realm roles",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-realm-role-mapper",
+              "consentRequired": false,
+              "config": {
+                "claim.name": "roles",
+                "multivalued": "true",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "name": "groups",
+          "description": "OpenID Connect scope for group membership",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "true",
+            "consent.screen.text": "${groupsScopeConsentText}"
+          },
+          "protocolMappers": [
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "consentRequired": false,
+              "config": {
+                "claim.name": "groups",
+                "full.path": "false",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        }
+      ],
+      "users": [
+        {
+          "username": "platform-admin",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "admin@openvelox.dev",
+          "firstName": "Platform",
+          "lastName": "Admin",
+          "credentials": [
+            {
+              "type": "password",
+              "value": "${PLATFORM_ADMIN_PASSWORD}",
+              "temporary": true
+            }
+          ],
+          "groups": ["/platform-admins"]
+        }
+      ],
+      "browserSecurityHeaders": {
+        "contentSecurityPolicy": "frame-src 'self'; frame-ancestors 'self' https://app.example.com https://airflow.example.com https://argocd.example.com https://grafana.example.com; object-src 'none';",
+        "xContentTypeOptions": "nosniff",
+        "xFrameOptions": "SAMEORIGIN",
+        "xXSSProtection": "1; mode=block"
+      }
+    }

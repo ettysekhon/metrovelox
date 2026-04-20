@@ -1,0 +1,102 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flink-submit-analytics
+  namespace: streaming
+  labels:
+    app.kubernetes.io/name: flink-sql-job
+    app.kubernetes.io/part-of: flink-sql-jobs
+    openvelox/flink-layer: analytics
+    openvelox/stream: tfl
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    # Analytics depends on the `curated.cycling.bike_occupancy` Iceberg
+    # table existing (the LIKE schema-inheritance in aggregations.sql
+    # hits the Polaris catalog at parse time).  Wave 12 guarantees the
+    # curated DDL has committed through at least once.
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: flink-sql-job
+        openvelox/flink-layer: analytics
+        openvelox/stream: tfl
+    spec:
+      serviceAccountName: flink
+      restartPolicy: OnFailure
+      nodeSelector:
+        cloud.google.com/gke-nodepool: spot-pool
+      tolerations:
+        - key: cloud.google.com/gke-spot
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      volumes:
+        - name: sql-files
+          configMap:
+            name: flink-sql-jobs
+      containers:
+        - name: sql-client
+          image: europe-west2-docker.pkg.dev/openvelox-elt-01/openvelox/flink-lakehouse:2.2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: FLINK_CONF_DIR
+              value: /tmp/flink-conf
+            - name: FLINK_PIPELINE_NAME
+              value: tfl-analytics-aggregations
+            - name: FLINK_SQL_FILE
+              value: /opt/flink/jobs/analytics_aggregations.sql
+            - name: KAFKA_BOOTSTRAP
+              value: openvelox-kafka-bootstrap.kafka.svc.cluster.local:9092
+            - name: KAFKA_TOKEN_ENDPOINT
+              value: http://keycloak.platform.svc.cluster.local:8080/realms/openvelox/protocol/openid-connect/token
+            - name: KAFKA_FLINK_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-flink-oauth
+                  key: client-id
+            - name: KAFKA_FLINK_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-flink-oauth
+                  key: client-secret
+          volumeMounts:
+            - name: sql-files
+              mountPath: /opt/flink/jobs
+              readOnly: true
+          command: ["/bin/bash", "-euo", "pipefail", "-c"]
+          args:
+            - |
+              mkdir -p "${FLINK_CONF_DIR}"
+              cp -f /opt/flink/conf/* "${FLINK_CONF_DIR}/" 2>/dev/null || true
+              cat > "${FLINK_CONF_DIR}/flink-conf.yaml" <<EOF
+              rest.address: flink-session-rest.streaming.svc.cluster.local
+              rest.port: 8081
+              jobmanager.rpc.address: flink-session-rest.streaming.svc.cluster.local
+              execution.target: remote
+              EOF
+
+              REST="http://flink-session-rest.streaming.svc.cluster.local:8081"
+              if curl -fsS "${REST}/jobs/overview" \
+                | python3 -c "import json,os,sys; d=json.load(sys.stdin); n=os.environ['FLINK_PIPELINE_NAME']; sys.exit(0 if any(j['name']==n and j['state']=='RUNNING' for j in d.get('jobs',[])) else 1)"; then
+                echo "pipeline ${FLINK_PIPELINE_NAME} already RUNNING — no-op"
+                exit 0
+              fi
+
+              TMP_SQL="$(mktemp --suffix=.sql)"
+              printf "SET 'pipeline.name' = '%s';\n\n" "${FLINK_PIPELINE_NAME}" > "${TMP_SQL}"
+              envsubst < "${FLINK_SQL_FILE}" >> "${TMP_SQL}"
+
+              echo "=== submitting ${FLINK_PIPELINE_NAME} ==="
+              /opt/flink/bin/sql-client.sh -f "${TMP_SQL}"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi

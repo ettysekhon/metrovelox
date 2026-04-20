@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: polaris
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: openvelox
+spec:
+  project: default
+  sources:
+    - chart: polaris
+      repoURL: https://downloads.apache.org/polaris/helm-chart
+      targetRevision: 1.3.0-incubating
+      helm:
+        valueFiles:
+          - $values/helm/polaris/values-gke.yaml
+    - repoURL: https://github.com/${GITHUB_ORG}/${GITHUB_REPO}.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: data
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,77 @@
+# GKE Gateway API Configuration
+# Replaces NGINX Ingress Controller with Google-managed Gateway
+#
+# TLS: Google-managed wildcard cert via Certificate Manager.
+#   certmap created imperatively — see BOOTSTRAP.md § TLS / Certificate Manager.
+#   Cloudflare SSL/TLS mode: Full (strict).
+#
+# Prerequisites:
+# - GKE 1.24+ with Gateway API enabled
+# - gateway.networking.k8s.io CRDs installed
+# - Certificate Manager certmap "openvelox-certmap" provisioned and ACTIVE
+# GatewayClass gke-l7-global-external-managed is auto-provisioned by GKE.
+# Do NOT create it manually — it already exists when Gateway API is enabled.
+---
+# Gateway - Single entry point for all external traffic
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: openvelox-gateway
+  namespace: platform
+  labels:
+    app.kubernetes.io/part-of: openvelox
+  annotations:
+    networking.gke.io/certmap: openvelox-certmap
+spec:
+  gatewayClassName: gke-l7-global-external-managed
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      allowedRoutes:
+        namespaces:
+          from: All
+        kinds:
+          - kind: HTTPRoute
+    # HTTP kept solely for 301 redirect to HTTPS
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+        kinds:
+          - kind: HTTPRoute
+---
+# HTTP-to-HTTPS redirect (all hostnames)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: http-redirect
+  namespace: platform
+spec:
+  parentRefs:
+    - name: openvelox-gateway
+      sectionName: http
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+---
+# Cloud Armor Security Policy (Optional - for WAF protection)
+# Apply via: gcloud compute security-policies create openvelox-policy
+#
+# apiVersion: networking.gke.io/v1beta1
+# kind: GCPBackendPolicy
+# metadata:
+#   name: openvelox-security-policy
+#   namespace: platform
+# spec:
+#   default:
+#     securityPolicy: projects/${PROJECT_ID}/global/securityPolicies/openvelox-policy
+#   targetRef:
+#     group: ""
+#     kind: Service
+#     name: "*"  # Apply to all services

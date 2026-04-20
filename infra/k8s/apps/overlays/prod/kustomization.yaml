@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: apps
+resources:
+  - ../../base
+
+# Pin the `openvelox-api` and `openvelox-dashboard` images to the Artifact
+# Registry tags built by `scripts/build-and-push-apps.sh`. The base
+# deployments reference the bare name (`openvelox-api:latest` /
+# `openvelox-dashboard:latest`) for dev/kind parity; prod rewrites to the
+# fully-qualified AR path so the GKE nodes pull the right thing.
+images:
+  - name: openvelox-api
+    newName: europe-west2-docker.pkg.dev/openvelox-elt-01/openvelox/openvelox-api
+    newTag: "6823d78"
+  - name: openvelox-dashboard
+    newName: europe-west2-docker.pkg.dev/openvelox-elt-01/openvelox/openvelox-dashboard
+    newTag: "7623edf"

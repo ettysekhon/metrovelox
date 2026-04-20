@@ -1,0 +1,151 @@
+# ArgoCD Configuration with Keycloak OIDC SSO
+# Deployed via ArgoCD Application (bootstrap pattern)
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  # ArgoCD URL
+  url: https://argocd.example.com
+
+  # Keycloak OIDC Configuration
+  oidc.config: |
+    name: Keycloak
+    issuer: https://auth.example.com/realms/openvelox
+    clientID: argocd
+    clientSecret: $oidc.keycloak.clientSecret
+    requestedScopes: ["openid", "profile", "email", "groups"]
+    requestedIDTokenClaims:
+      groups:
+        essential: true
+
+  # Enable RBAC
+  admin.enabled: "true"
+
+  # Application status badge
+  statusbadge.enabled: "true"
+
+  # Kustomize build options.
+  #   --enable-helm
+  #     Allows `helmCharts:` inside a kustomization.yaml (used by
+  #     helm-backed overlays).
+  #   --load-restrictor=LoadRestrictionsNone
+  #     Permits `configMapGenerator.files:` and `resources:` paths that
+  #     escape the kustomization root. Required so the prod streaming
+  #     overlay's `flink-sql-jobs/` kustomization can package the SQL
+  #     files from `pipelines/tfl/streaming/flink-jobs/` into a
+  #     ConfigMap without file duplication (the SQL files stay in
+  #     their natural source-of-truth location).  All referenced files
+  #     still live in the same git repo, so this doesn't weaken supply
+  #     chain guarantees.
+  kustomize.buildOptions: --enable-helm --load-restrictor=LoadRestrictionsNone
+
+  # Resource exclusions (prevent managing certain resources)
+  resource.exclusions: |
+    - apiGroups:
+        - cilium.io
+      kinds:
+        - CiliumIdentity
+      clusters:
+        - "*"
+
+  # Health assessments for custom resources
+  resource.customizations.health.argoproj.io_Application: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = ""
+    if obj.status ~= nil then
+      if obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+    end
+    return hs
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-rbac-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-rbac-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  # Default role for authenticated users
+  policy.default: role:readonly
+
+  # Scopes to use for group membership
+  scopes: "[groups]"
+
+  # RBAC Policy
+  policy.csv: |
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ARGOCD RBAC POLICY - Keycloak Group Mappings
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    # Platform Admins - Full access to everything
+    g, platform-admins, role:admin
+
+    # Developers - Can view and sync applications
+    p, role:developer, applications, get, */*, allow
+    p, role:developer, applications, sync, */*, allow
+    p, role:developer, applications, action/*, */*, allow
+    p, role:developer, logs, get, */*, allow
+    p, role:developer, exec, create, */*, allow
+    p, role:developer, repositories, get, *, allow
+    p, role:developer, clusters, get, *, allow
+    p, role:developer, projects, get, *, allow
+    g, developers, role:developer
+
+    # Operators - Can sync and manage applications but not delete
+    p, role:operator, applications, get, */*, allow
+    p, role:operator, applications, sync, */*, allow
+    p, role:operator, applications, action/*, */*, allow
+    p, role:operator, logs, get, */*, allow
+    p, role:operator, repositories, get, *, allow
+    p, role:operator, clusters, get, *, allow
+    p, role:operator, projects, get, *, allow
+    g, operators, role:operator
+
+    # Viewers - Read-only access
+    p, role:viewer, applications, get, */*, allow
+    p, role:viewer, logs, get, */*, allow
+    p, role:viewer, repositories, get, *, allow
+    p, role:viewer, clusters, get, *, allow
+    p, role:viewer, projects, get, *, allow
+    g, viewers, role:viewer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cmd-params-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  # Server configuration
+  server.insecure: "true" # TLS terminated at ingress
+  server.rootpath: ""
+
+  # Application controller
+  controller.status.processors: "20"
+  controller.operation.processors: "10"
+  controller.self.heal.timeout.seconds: "5"
+
+  # Repo server
+  reposerver.parallelism.limit: "0"
+# Note: argocd-secret is NOT managed here.
+# - oidc.keycloak.clientSecret is injected by ExternalSecret (argocd-oidc-vault → argocd-secret, Merge policy)
+# - admin.password and server.secretkey are set by Helm during bootstrap
+# See: infra/k8s/security/external-secrets.yaml
+#
+# Ingress is managed via GKE Gateway API
+# See: infra/k8s/gateway/base/httproutes.yaml (argocd-route)

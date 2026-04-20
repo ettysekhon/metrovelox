@@ -1,0 +1,9 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: openvelox-gateway
+  namespace: platform
+  annotations:
+    networking.gke.io/certmap: metrovelox-com-certmap
+spec:
+  gatewayClassName: gke-l7-global-external-managed

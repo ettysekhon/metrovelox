@@ -1,0 +1,62 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-session
+  namespace: streaming
+spec:
+  image: europe-west2-docker.pkg.dev/openvelox-dev-01/openvelox/flink-lakehouse:2.2
+  flinkConfiguration:
+    state.checkpoints.dir: gs://openvelox-dev-01-flink/checkpoints
+    state.savepoints.dir: gs://openvelox-dev-01-flink/savepoints
+  # See overlays/prod/patches-flink-session.yaml for rationale — the
+  # FlinkDeployment CRD lacks a strategic-merge schema for
+  # `spec.podTemplate.spec.initContainers`, so the full array must be
+  # redeclared here to pick up the shaded->unshaded Kafka connector swap.
+  podTemplate:
+    spec:
+      initContainers:
+        - name: flink-lib-copy
+          image: europe-west2-docker.pkg.dev/openvelox-dev-01/openvelox/flink-lakehouse:2.2
+          command:
+            - sh
+            - -c
+            - cp /opt/flink/lib/*.jar /lib-overlay/
+          volumeMounts:
+            - name: flink-lib-overlay
+              mountPath: /lib-overlay
+        - name: strimzi-oauth-download
+          image: curlimages/curl:8.9.1
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              cd /lib-overlay
+              rm -f flink-sql-connector-kafka-*.jar
+              curl -fSL -o flink-connector-kafka-4.0.1-2.0.jar \
+                https://repo1.maven.org/maven2/org/apache/flink/flink-connector-kafka/4.0.1-2.0/flink-connector-kafka-4.0.1-2.0.jar
+              curl -fSL -o kafka-clients-3.9.1.jar \
+                https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.9.1/kafka-clients-3.9.1.jar
+              curl -fSL -o kafka-oauth-client-0.16.1.jar \
+                https://repo1.maven.org/maven2/io/strimzi/kafka-oauth-client/0.16.1/kafka-oauth-client-0.16.1.jar
+              curl -fSL -o kafka-oauth-common-0.16.1.jar \
+                https://repo1.maven.org/maven2/io/strimzi/kafka-oauth-common/0.16.1/kafka-oauth-common-0.16.1.jar
+              curl -fSL -o jackson-core-2.15.3.jar \
+                https://repo1.maven.org/maven2/com/fasterxml/jackson/core/jackson-core/2.15.3/jackson-core-2.15.3.jar
+              curl -fSL -o jackson-databind-2.15.3.jar \
+                https://repo1.maven.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.15.3/jackson-databind-2.15.3.jar
+              curl -fSL -o jackson-annotations-2.15.3.jar \
+                https://repo1.maven.org/maven2/com/fasterxml/jackson/core/jackson-annotations/2.15.3/jackson-annotations-2.15.3.jar
+              curl -fSL -o aa-nimbus-jose-jwt-9.37.2.jar \
+                https://repo1.maven.org/maven2/com/nimbusds/nimbus-jose-jwt/9.37.2/nimbus-jose-jwt-9.37.2.jar
+              curl -fSL -o json-path-2.9.0.jar \
+                https://repo1.maven.org/maven2/com/jayway/jsonpath/json-path/2.9.0/json-path-2.9.0.jar
+              curl -fSL -o json-smart-2.5.2.jar \
+                https://repo1.maven.org/maven2/net/minidev/json-smart/2.5.2/json-smart-2.5.2.jar
+              curl -fSL -o accessors-smart-2.5.2.jar \
+                https://repo1.maven.org/maven2/net/minidev/accessors-smart/2.5.2/accessors-smart-2.5.2.jar
+              curl -fSL -o gson-2.10.1.jar \
+                https://repo1.maven.org/maven2/com/google/code/gson/gson/2.10.1/gson-2.10.1.jar
+          volumeMounts:
+            - name: flink-lib-overlay
+              mountPath: /lib-overlay

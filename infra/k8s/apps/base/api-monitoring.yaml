@@ -1,0 +1,138 @@
+# ServiceMonitor + PrometheusRule for `openvelox-api`.
+#
+# The API exposes `/metrics` on :8080 (same port as traffic — see
+# apps/api/app/metrics.py) and emits `openvelox_api_data_source_total`
+# with `endpoint` + `source` labels.
+#
+# Alerts are scoped to catching a *silent* degradation where Trino or
+# Polaris becomes unreachable and the API transparently falls back to
+# the public TfL API. Users keep getting answers, so the Gateway health
+# check stays green and nobody gets paged — which is exactly the
+# failure mode we traded an entire afternoon on two weeks ago. The
+# metric ratio is the canary.
+#
+# Both CRDs carry `release: prometheus-stack` because the cluster
+# Prometheus's `serviceMonitorSelector` / `ruleSelector` match on that
+# label (verified via
+#   kubectl -n monitoring get prometheus -o jsonpath=
+#     '{.items[0].spec.ruleSelector}'
+# → {"matchLabels":{"release":"prometheus-stack"}}).
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: openvelox-api
+  namespace: apps
+  labels:
+    app: openvelox-api
+    app.kubernetes.io/part-of: openvelox
+    release: prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: openvelox-api
+  namespaceSelector:
+    matchNames:
+      - apps
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: openvelox-api-data-source
+  namespace: apps
+  labels:
+    app: openvelox-api
+    app.kubernetes.io/part-of: openvelox
+    release: prometheus-stack
+spec:
+  groups:
+    - name: openvelox-api.data-source
+      rules:
+        # Recording rules — baseline queryable signals. Dashboards and
+        # alerts both reference these so the PromQL in one place stays
+        # in sync across consumers.
+        - record: openvelox:api_source_rate:5m
+          expr: |
+            sum by (endpoint, source) (
+              rate(openvelox_api_data_source_total[5m])
+            )
+        - record: openvelox:api_tfl_fallback_ratio:5m
+          expr: |
+            (
+              sum by (endpoint) (rate(openvelox_api_data_source_total{source="tfl_api"}[5m]))
+              /
+              clamp_min(
+                sum by (endpoint) (rate(openvelox_api_data_source_total[5m])),
+                0.001
+              )
+            )
+
+        # Single-shot alert — if any endpoint serves more than 20% of
+        # traffic from the TfL API fallback path for 10 consecutive
+        # minutes, the lakehouse (Trino/Polaris/GCS) is silently
+        # unavailable or degraded. 20% avoids flapping on a Trino roll
+        # (which is ~60 s of TfL fallback and then back), 10m confirms
+        # it isn't a transient.
+        - alert: OpenVeloxApiFallingBackToTflApi
+          expr: |
+            openvelox:api_tfl_fallback_ratio:5m > 0.20
+          for: 10m
+          labels:
+            severity: warning
+            service: openvelox-api
+            pipeline: streaming
+          annotations:
+            summary: |
+              openvelox-api endpoint {{ $labels.endpoint }} is serving >20%
+              of responses from the TfL fallback path (ratio {{ $value | humanizePercentage }})
+            description: |
+              The lakehouse path (Trino → Polaris → Iceberg on GCS) is
+              degraded or unreachable and `openvelox-api` is papering over it
+              by hitting the public TfL API synchronously. Users will see
+              responses but `source="tfl_api"` instead of `source="lakehouse"`.
+
+              Likely causes (in descending order of what tripped us before):
+              1. Trino GCS credential plumbing broken — see helm/trino/values-prod.tmpl.yaml.
+              2. Polaris OPA policy regression after a Rego PR (compare PR to
+                 policies/polaris_test.rego).
+              3. Iceberg REST catalog endpoint down or wrong URL.
+              4. Upstream Airflow DAG failing and `line_status_latest` stale.
+
+              Playbook:
+              * `curl -sf https://api.metrovelox.com/api/v1/lines/status | jq .source`
+              * `kubectl -n data logs deploy/polaris --tail=100 | grep -Ei "opa|authoriz|error"`
+              * `kubectl -n data logs deploy/trino-coordinator --tail=100 | grep -Ei "gcs|auth|error"`
+
+        # Hard-fail alert — if no lakehouse traffic at all for 15m while
+        # the API is otherwise seeing requests, either the metric-emitter
+        # is broken OR every single endpoint is degraded. Either way it's
+        # page-worthy.
+        - alert: OpenVeloxApiNoLakehouseTraffic
+          expr: |
+            (
+              sum(rate(openvelox_api_data_source_total{source="lakehouse"}[5m])) == 0
+            )
+            and on()
+            (
+              sum(rate(openvelox_api_data_source_total[5m])) > 0
+            )
+          for: 15m
+          labels:
+            severity: critical
+            service: openvelox-api
+            pipeline: streaming
+          annotations:
+            summary: |
+              openvelox-api has served zero lakehouse responses for 15m while traffic is flowing
+            description: |
+              Every domain endpoint is falling back to the TfL API
+              synchronously. The Iceberg/Trino/Polaris stack is almost
+              certainly down; the fallback path is masking it from
+              unhealthy HTTP probes. Verify Polaris/OPA/Trino pods and
+              consult helm/trino/values-prod.tmpl.yaml for the GCS auth
+              model.

@@ -1,0 +1,24 @@
+[project]
+name = "openvelox-api"
+version = "0.1.0"
+description = "OpenVelox API - FastAPI lakehouse gateway with REST, WebSocket, and MCP"
+requires-python = ">=3.12"
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain-google-genai>=2.0.0",
+    "mcp>=1.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "httpx>=0.28.0",
+    "pydantic>=2.10.0",
+    "trino[sqlalchemy]>=0.330.0",
+    "aiokafka>=0.12.0",
+    "websockets>=14.0",
+    "prometheus-client>=0.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+]

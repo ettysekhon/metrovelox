@@ -1,0 +1,72 @@
+# HashiCorp Vault — GKE values
+# Integrated Raft storage (no Consul dependency), UI enabled, GCP KMS auto-unseal.
+
+global:
+  enabled: true
+
+server:
+  enabled: true
+
+  image:
+    repository: hashicorp/vault
+    tag: "1.19"
+
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+  dataStorage:
+    enabled: true
+    size: 10Gi
+    storageClass: standard-rwo
+
+  auditStorage:
+    enabled: true
+    size: 5Gi
+    storageClass: standard-rwo
+
+  standalone:
+    enabled: true
+    config: |
+      ui = true
+
+      listener "tcp" {
+        address     = "[::]:8200"
+        tls_disable = 1
+      }
+
+      storage "raft" {
+        path = "/vault/data"
+      }
+
+  # seal stanza is set per-env in values-{env}.yaml (project_id differs)
+
+  serviceAccount:
+    create: true
+    name: vault
+    annotations:
+      # Workload Identity annotation is set per-env in values-{env}.yaml
+
+  service:
+    type: ClusterIP
+
+  ingress:
+    enabled: false
+
+ui:
+  enabled: true
+  serviceType: ClusterIP
+
+injector:
+  enabled: true
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 250m

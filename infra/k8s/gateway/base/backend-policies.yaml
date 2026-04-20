@@ -1,0 +1,164 @@
+# GCP Backend Policies for OpenVelox Services
+# Replaces NGINX Ingress annotations for:
+#   - Rate limiting (nginx.ingress.kubernetes.io/limit-rps)
+#   - Timeouts (nginx.ingress.kubernetes.io/proxy-read-timeout)
+#   - Connection draining (nginx.ingress.kubernetes.io/proxy-*-timeout)
+#   - Health checks (nginx.ingress.kubernetes.io/healthcheck-*)
+#
+# Reference: https://cloud.google.com/kubernetes-engine/docs/how-to/configure-backend-service
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# KEYCLOAK BACKEND POLICY
+# Large buffer sizes for OIDC token exchange
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: keycloak-backend-policy
+  namespace: platform
+spec:
+  default:
+    timeoutSec: 60
+    connectionDraining:
+      drainingTimeoutSec: 30
+    healthCheck:
+      type: HTTP
+      httpHealthCheck:
+        port: 8080
+        requestPath: /health/ready
+    logging:
+      enable: true
+      sampleRate: 500000
+  targetRef:
+    group: ""
+    kind: Service
+    name: keycloak
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# MCP SERVERS BACKEND POLICY
+# Rate limiting + long timeouts for SSE
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: mcp-backend-policy
+  namespace: apps
+spec:
+  default:
+    timeoutSec: 300  # 5 minutes for SSE streams
+    connectionDraining:
+      drainingTimeoutSec: 60
+    healthCheck:
+      type: HTTP
+      httpHealthCheck:
+        port: 8080
+        requestPath: /health
+    # Cloud Armor security policy (create separately)
+    # Provides rate limiting equivalent to nginx limit-rps
+    # securityPolicy: projects/${PROJECT_ID}/global/securityPolicies/mcp-rate-limit
+    logging:
+      enable: true
+      sampleRate: 1000000
+  targetRef:
+    group: ""
+    kind: Service
+    name: mcp-tfl
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# WEBSOCKET GATEWAY BACKEND POLICY
+# Session affinity + long timeouts for persistent connections
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: ws-gateway-backend-policy
+  namespace: streaming
+spec:
+  default:
+    timeoutSec: 3600  # 1 hour for WebSocket connections
+    connectionDraining:
+      drainingTimeoutSec: 300  # 5 minutes grace for existing connections
+    # Session affinity replaces nginx upstream-hash-by
+    sessionAffinity:
+      type: CLIENT_IP
+      affinityCookieTtlSec: 3600
+    healthCheck:
+      type: HTTP
+      httpHealthCheck:
+        port: 80
+        requestPath: /health
+  targetRef:
+    group: ""
+    kind: Service
+    name: ws-gateway
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# API GATEWAY BACKEND POLICY
+# Standard REST API configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: api-backend-policy
+  namespace: platform
+spec:
+  default:
+    timeoutSec: 60
+    connectionDraining:
+      drainingTimeoutSec: 30
+    healthCheck:
+      type: HTTP
+      httpHealthCheck:
+        port: 8000
+        requestPath: /health
+    logging:
+      enable: true
+      sampleRate: 100000
+  targetRef:
+    group: ""
+    kind: Service
+    name: openvelox-api
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# AIRFLOW BACKEND POLICY
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: airflow-backend-policy
+  namespace: batch
+spec:
+  default:
+    timeoutSec: 120
+    connectionDraining:
+      drainingTimeoutSec: 30
+    healthCheck:
+      type: HTTP
+      httpHealthCheck:
+        port: 8080
+        requestPath: /health
+  targetRef:
+    group: ""
+    kind: Service
+    name: airflow-api-server
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# RATE LIMITING VIA CLOUD ARMOR
+# Create this security policy to replace nginx.ingress.kubernetes.io/limit-rps
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# gcloud compute security-policies create mcp-rate-limit \
+#   --description="Rate limiting for MCP servers"
+#
+# gcloud compute security-policies rules create 1000 \
+#   --security-policy=mcp-rate-limit \
+#   --expression="true" \
+#   --action="rate-based-ban" \
+#   --rate-limit-threshold-count=100 \
+#   --rate-limit-threshold-interval-sec=60 \
+#   --ban-duration-sec=600 \
+#   --conform-action=allow \
+#   --exceed-action=deny-429
+#
+# Then reference in GCPBackendPolicy:
+# securityPolicy: projects/${PROJECT_ID}/global/securityPolicies/mcp-rate-limit

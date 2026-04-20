@@ -1,0 +1,4 @@
+[submodule "apps/polaris-console/upstream"]
+	path = apps/polaris-console/upstream
+	url = https://github.com/apache/polaris-tools.git
+	branch = main

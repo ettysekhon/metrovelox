@@ -1,0 +1,73 @@
+# Cert-Manager ClusterIssuer Configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# NOTE: External certificates are now handled by Google-managed certificates
+# via the ManagedCertificate resource in infra/k8s/gateway/gateway.yaml
+#
+# This ClusterIssuer is retained for:
+#   - Internal service-to-service mTLS (future)
+#   - Development/testing environments
+#   - Backup if Google-managed certs have issues
+#
+# For production external traffic, use:
+#   infra/k8s/gateway/gateway.yaml → ManagedCertificate
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+  labels:
+    app.kubernetes.io/part-of: openvelox
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@openvelox.dev
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    solvers:
+      # Gateway API solver (for environments using cert-manager with Gateway)
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - name: openvelox-gateway
+                namespace: platform
+                kind: Gateway
+---
+# Self-signed issuer for internal certificates
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+  labels:
+    app.kubernetes.io/part-of: openvelox
+spec:
+  selfSigned: {}
+---
+# Internal CA for service-to-service mTLS (future use)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: openvelox-internal-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: openvelox-internal-ca
+  secretName: openvelox-internal-ca-secret
+  duration: 8760h  # 1 year
+  renewBefore: 720h  # 30 days
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: openvelox-internal-ca-issuer
+  labels:
+    app.kubernetes.io/part-of: openvelox
+spec:
+  ca:
+    secretName: openvelox-internal-ca-secret

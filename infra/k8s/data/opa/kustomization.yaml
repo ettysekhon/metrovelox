@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Open Policy Agent (OPA) sidecar Deployment for Polaris external-PDP
+# authorization. Wired into the same ArgoCD Application that syncs the
+# rest of `infra/k8s/data/` — currently named `polaris-console` for
+# historical reasons (see argocd/envs/*/polaris-console.tmpl.yaml), which
+# picks up every resource listed in `infra/k8s/data/kustomization.yaml`.
+#
+# The Rego policy under policies/ is authoritative. configMapGenerator
+# turns it into a versioned ConfigMap (hash-suffixed), and because
+# kustomize rewrites the volume reference in opa.yaml automatically,
+# every policy edit triggers a rolling restart of the OPA pods. That
+# gives us a single "edit + render + apply" workflow from dev through
+# prod with no drift between what `opa test` validated and what's
+# running in-cluster.
+namespace: data
+resources:
+  - opa.yaml
+configMapGenerator:
+  - name: polaris-opa-policy
+    files:
+      - policies/polaris.rego
+      # polaris_test.rego is intentionally NOT bundled — OPA tests must
+      # stay out of the production runtime (they'd add extra rules into
+      # the `polaris.authz` package that could shadow real decisions).
